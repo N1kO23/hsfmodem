@@ -326,7 +326,7 @@ static int __devinit cnxthwusb_probe(struct usb_interface *intf,
 	    USB_BYTEORDER16(pUsbDevice->descriptor.idVendor), USB_BYTEORDER16(pUsbDevice->descriptor.idProduct));
 #ifdef CNXTHWUSB_TYPE
     pDevNode->hwType = CNXTHWUSB_TYPE;
-    // pDevNode->hwIf = GetHwFuncs();
+    pDevNode->hwIf = GetHwFuncs();
 #endif
     pDevNode->pmControl = cnxthw_DevMgrPMControl;
 	pDevNode->osPageOffset = PAGE_OFFSET;

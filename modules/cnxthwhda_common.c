@@ -124,7 +124,7 @@ static int cnxthwhda_setsyms (void **ppInterfaceFuncs);
 	snprintf(pDevNode->hwInstName, sizeof(pDevNode->hwInstName), "HDA-%08x:%08x-%u",
 			OsHdaCodecGetVendorId(pHdaOsHal), OsHdaCodecGetSubsystemId(pHdaOsHal), OsHdaCodecGetAddr(pHdaOsHal));
 	pDevNode->hwType = CNXTHWHDA_TYPE;
-	// pDevNode->hwIf = GetHwFuncs();
+	pDevNode->hwIf = GetHwFuncs();
 	pDevNode->pmControl = cnxthw_DevMgrPMControl;
 	pDevNode->osPageOffset = PAGE_OFFSET;
 

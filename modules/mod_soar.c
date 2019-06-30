@@ -10,9 +10,9 @@
 #include "osservices.h"
 #include "comtypes.h"
 
-// PVOID GetSOARLibInterface(void);
+PVOID GetSOARLibInterface(void);
 
-// EXPORT_SYMBOL_NOVERS(GetSOARLibInterface);
+EXPORT_SYMBOL_NOVERS(GetSOARLibInterface);
 
 MODULE_AUTHOR("Copyright (C) 1996-2001 Conexant Systems Inc.");
 MODULE_DESCRIPTION("HSF module for SmartDAA(tm) devices");

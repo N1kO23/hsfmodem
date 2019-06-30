@@ -83,7 +83,7 @@ static int __devinit cnxthwpci_probe (struct pci_dev *pdev,
 	    	pdev->vendor, pdev->device, pdev->subsystem_vendor, pdev->subsystem_device);
 #ifdef CNXTHWPCI_TYPE
     pDevNode->hwType = CNXTHWPCI_TYPE;
-    // pDevNode->hwIf = GetHwFuncs();
+    pDevNode->hwIf = GetHwFuncs();
 #endif
     pDevNode->pmControl = cnxthw_DevMgrPMControl;
     pDevNode->osPageOffset = PAGE_OFFSET;

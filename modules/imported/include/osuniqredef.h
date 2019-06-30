@@ -239,7 +239,7 @@
 #define RPT_Write _OSUNIQDEF(RPT_Write)
 #define ulTraceMask _OSUNIQDEF(ulTraceMask)
 #define ulLogThread _OSUNIQDEF(ulLogThread)
-// #define GetSOARLibInterface _OSUNIQDEF(GetSOARLibInterface)
+#define GetSOARLibInterface _OSUNIQDEF(GetSOARLibInterface)
 #define cnxt_serial_add _OSUNIQDEF(cnxt_serial_add)
 #define cnxt_serial_remove _OSUNIQDEF(cnxt_serial_remove)
 
