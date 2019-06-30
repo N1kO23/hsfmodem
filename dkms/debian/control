@@ -1,0 +1,12 @@
+Source: hsfmodem-dkms
+Section: misc
+Priority: optional
+Maintainer: Bence Csókás <bence98@sch.bme.hu>
+Build-Depends: debhelper (>= 7), dkms
+Standards-Version: 3.8.1
+
+Package: hsfmodem-dkms
+Architecture: amd64
+Depends: dkms (>= 1.95), ${misc:Depends}
+Description: hsfmodem driver in DKMS format.
+  A patched version of Linuxant's HSF drivers for Conexant dial-up modems
