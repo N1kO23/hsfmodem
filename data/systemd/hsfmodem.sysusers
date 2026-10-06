@@ -1,0 +1,4 @@
+# SPDX-License-Identifier: MIT
+u hsfmodem - "HSF softmodem daemon" /var/lib/hsfmodem
+m hsfmodem audio
+m hsfmodem dialout

@@ -1,0 +1,13 @@
+# SPDX-License-Identifier: MIT
+[Unit]
+Description=Conexant HSF softmodem as a serial port (/dev/ttySHSF0)
+After=sound.target systemd-modules-load.service
+
+[Service]
+# Starts as root, then runs as the "user" from /etc/hsfmodem/hsfmodemd.conf.
+ExecStart=@SBINDIR@/hsfmodemd
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target

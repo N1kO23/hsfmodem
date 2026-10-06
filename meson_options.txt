@@ -1,0 +1,16 @@
+option('arch', type: 'combo', choices: ['auto', 'x86_64', 'i386'], value: 'auto',
+       description: 'Which Conexant blobs to link (auto = host CPU family)')
+option('blob_dir', type: 'string', value: '',
+       description: 'Directory holding hsf*-<arch>.O (default: third_party/linuxant/blobs)')
+option('verify_blob_checksums', type: 'boolean', value: true,
+       description: 'Refuse blobs whose SHA256 is not listed in third_party/linuxant/SHA256SUMS')
+option('nvm_static_dir', type: 'string', value: '',
+       description: 'Installed static NVM tree (default: <datadir>/hsfmodem/nvm)')
+option('nvm_dynamic_dir', type: 'string', value: '/var/lib/hsfmodem/dynamic',
+       description: 'Per-device dynamic NVM parameters')
+option('tests', type: 'boolean', value: true,
+       description: 'Build the test suites')
+option('openrc', type: 'boolean', value: false,
+       description: 'Install the OpenRC service')
+option('systemd', type: 'boolean', value: false,
+       description: 'Install the systemd unit and sysusers.d entry')

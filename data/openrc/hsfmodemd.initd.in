@@ -1,0 +1,16 @@
+#!/sbin/openrc-run
+# SPDX-License-Identifier: MIT
+
+description="Conexant HSF softmodem as a serial port (/dev/ttySHSF0)"
+supervisor=supervise-daemon
+command="@SBINDIR@/hsfmodemd"
+command_args="--syslog ${HSFMODEMD_OPTS}"
+respawn_delay=2
+respawn_max=5
+respawn_period=60
+
+depend() {
+	need localmount
+	after alsasound modules
+	use logger
+}

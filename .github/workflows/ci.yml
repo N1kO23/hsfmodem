@@ -1,0 +1,62 @@
+# SPDX-License-Identifier: MIT
+#
+# Builds and tests the daemon against the real Conexant blobs on x86_64 and
+# i386. Nothing is uploaded: every binary here links the proprietary blobs,
+# which may not be redistributed in modified form (third_party/linuxant/LICENSE).
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  x86_64:
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        variant:
+          - name: default
+            options: ""
+          - name: sanitizers
+            options: "-Db_sanitize=address,undefined -Db_lundef=false"
+    name: x86_64 (${{ matrix.variant.name }})
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install build dependencies
+        run: sudo ci/deps-debian.sh
+      - name: Build and test
+        run: ci/run-tests.sh build ${{ matrix.variant.options }}
+
+  i386:
+    runs-on: ubuntu-24.04
+    name: i386 (container)
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build and test in an i386 Debian container
+        run: >
+          docker run --rm --platform linux/386 -v "$PWD":/src -w /src i386/debian:trixie
+          sh -c 'ci/deps-debian.sh && ci/run-tests.sh /tmp/build'
+
+  kernel-module:
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        version: ["6.17", "6.18", "7.2.6"]
+        arch: [x86_64, i386]
+    name: module (Linux ${{ matrix.version }}, ${{ matrix.arch }})
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install kernel build dependencies
+        run: sudo apt-get -qq update && sudo apt-get -qq install -y build-essential flex bison bc libelf-dev libssl-dev
+      - name: Build snd-hda-codec-hsfmodem
+        run: ci/kernel-build.sh ${{ matrix.version }} ${{ matrix.arch }} /tmp/kbuild
+      - name: checkpatch
+        if: matrix.version == '7.2.6' && matrix.arch == 'x86_64'
+        run: >
+          /tmp/kbuild/linux-7.2.6/scripts/checkpatch.pl --no-tree --strict -f
+          kernel/hsfmodem_codec.c kernel/hsfmodem_hwdep.c kernel/hsfmodem.h include/uapi/sound/hsfmodem.h

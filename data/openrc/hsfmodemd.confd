@@ -1,0 +1,2 @@
+# Options for hsfmodemd, on top of /etc/hsfmodem/hsfmodemd.conf.
+HSFMODEMD_OPTS=""

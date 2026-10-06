@@ -27,3 +27,8 @@
 /scripts/hsf*.in
 /scripts/rc*.in
 !/scripts/rccnxt.in
+
+# meson build trees (contain blob-derived objects; never commit)
+/build*/
+/kernel/Module.symvers
+/kernel/modules.order

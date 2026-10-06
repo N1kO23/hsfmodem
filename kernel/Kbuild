@@ -1,0 +1,4 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
+obj-m += snd-hda-codec-hsfmodem.o
+snd-hda-codec-hsfmodem-y := hsfmodem_codec.o hsfmodem_hwdep.o
+ccflags-y += -I$(src)/../include/uapi

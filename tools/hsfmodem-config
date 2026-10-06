@@ -1,0 +1,332 @@
+#!/usr/bin/env python3
+# SPDX-License-Identifier: MIT
+"""Configure the Conexant HSF softmodem: region, license, set-up checks.
+
+The modem's per-device state lives in the dynamic NVM directory, one
+directory per modem ("<instance>-<name>"), in the format the engine reads
+(docs/OS-LAYER.md). Region and license changes take effect when hsfmodemd
+next opens the modem, so restart it afterwards.
+"""
+
+import argparse
+import glob
+import hashlib
+import os
+import re
+import socket
+import sys
+
+STATIC_DIR = "@NVM_STATIC_DIR@"
+DYNAMIC_DIR = "@NVM_DYNAMIC_DIR@"
+CONTROL = "/run/hsfmodem/control"
+PROFILE = "hsfhda"
+MODPROBE_CONF = "/etc/modprobe.d/hsfmodem.conf"
+FREE_KEY = "00000000"
+
+# ISO 3166 country -> T.35 code, as the legacy configuration script mapped
+# time zones to regions.
+ISO_TO_T35 = {
+    "AR": "0007", "AU": "0009", "AT": "000A", "BH": "000C", "BD": "000D", "BE": "000F",
+    "BO": "0014", "BR": "0016", "BN": "001A", "BG": "001B", "CA": "0020", "CL": "0025",
+    "CN": "0026", "CO": "0027", "CR": "002B", "HR": "00FA", "CY": "002D", "CZ": "002E",
+    "DK": "0031", "DO": "0033", "EC": "0035", "EG": "0036", "SV": "0037", "FI": "003C",
+    "FR": "003D", "DE": "0004", "GR": "0046", "GT": "0049", "HT": "004E", "HN": "004F",
+    "HK": "0050", "HU": "0051", "IS": "0052", "IN": "0053", "ID": "0054", "IE": "0057",
+    "IL": "0058", "IT": "0059", "JP": "0000", "KR": "0061", "KW": "0062", "LA": "0063",
+    "LV": "00F8", "LI": "0068", "LU": "0069", "MO": "006A", "MY": "006C", "MT": "0070",
+    "MX": "0073", "MM": "001C", "NL": "007B", "NZ": "007E", "NO": "0082", "PK": "0084",
+    "PA": "0085", "PY": "0087", "PE": "0088", "PH": "0089", "PL": "008A", "PT": "008B",
+    "PR": "008C", "RO": "008E", "RU": "00B8", "SA": "0098", "SG": "009C", "SK": "00FB",
+    "SI": "00FC", "ZA": "009F", "ES": "00A0", "LK": "00A1", "SE": "00A5", "CH": "00A6",
+    "TW": "00FE", "TH": "00A9", "TR": "00AE", "GB": "00B4", "UA": "00B2", "AE": "00B3",
+    "UY": "00B7", "US": "00B5", "VE": "00BB", "VN": "00BC",
+}
+
+# HD-audio controllers whose snd-hda-intel quirk hides the modem codec
+# (sound/hda/controllers/intel.c: "Thinkpad X/T/R60", probe_mask 0x01).
+HIDDEN_MODEM_SLOT = {(0x17AA, 0x2010)}
+
+
+class Error(Exception):
+    pass
+
+
+# ---- NVM files --------------------------------------------------------------
+
+def read_value(path):
+    """An NVM value as text: quoted strings unquoted, hex tokens joined."""
+    try:
+        with open(path) as f:
+            text = f.read().strip()
+    except FileNotFoundError:
+        return None
+    if text.startswith('"') and text.endswith('"'):
+        return text[1:-1]
+    return text
+
+
+def write_value(path, text, like):
+    """Write an NVM file owned like the directory it goes in."""
+    tmp = path + ".new"
+    with open(tmp, "w") as f:
+        f.write(text + "\n")
+    st = os.stat(like)
+    try:
+        os.chown(tmp, st.st_uid, st.st_gid)
+    except PermissionError:
+        pass
+    os.chmod(tmp, 0o644)
+    os.replace(tmp, path)
+
+
+def instances(args):
+    dirs = sorted(d for d in glob.glob(os.path.join(args.nvm_dynamic, "*-*")) if os.path.isdir(d))
+    if args.unit is not None:
+        dirs = [d for d in dirs if os.path.basename(d).split("-", 1)[0] == str(args.unit)]
+    if not dirs:
+        raise Error(f"no modem state in {args.nvm_dynamic}: start hsfmodemd once first"
+                    + (f" (unit {args.unit})" if args.unit is not None else ""))
+    return dirs
+
+
+# ---- regions ----------------------------------------------------------------
+
+def regions(args):
+    """{T.35 code: name} from the static NVM tree."""
+    out = {}
+    for path in glob.glob(os.path.join(args.nvm_static, args.profile, "Region", "????_NAME")):
+        code = os.path.basename(path)[:4].upper()
+        name = read_value(path)
+        if name:
+            out[code] = name.replace(" ", "_")
+    if not out:
+        raise Error(f"no regions under {os.path.join(args.nvm_static, args.profile)}")
+    return out
+
+
+def timezone_region(zoneinfo="/usr/share/zoneinfo", localtime="/etc/localtime"):
+    """T.35 code of the country the local time zone belongs to, or None."""
+    zone = None
+    try:
+        target = os.path.realpath(localtime)
+        if target.startswith(os.path.realpath(zoneinfo) + os.sep):
+            zone = os.path.relpath(target, os.path.realpath(zoneinfo))
+    except OSError:
+        pass
+    if not zone:
+        try:
+            with open("/etc/timezone") as f:
+                zone = f.read().strip()
+        except OSError:
+            return None
+    zone = re.sub(r"^(posix|right)/", "", zone)
+    try:
+        with open(os.path.join(zoneinfo, "zone.tab")) as f:
+            for line in f:
+                if line.startswith("#"):
+                    continue
+                cols = line.rstrip("\n").split("\t")
+                if len(cols) >= 3 and cols[2] == zone:
+                    return ISO_TO_T35.get(cols[0])
+    except OSError:
+        pass
+    return None
+
+
+def resolve_region(args, wanted):
+    table = regions(args)
+    if wanted.upper() == "AUTO":
+        code = timezone_region()
+        if code not in table:
+            raise Error("cannot tell the region from the time zone; name it")
+        return code, table[code]
+    if re.fullmatch(r"[0-9A-Fa-f]{1,4}", wanted) and wanted.upper().zfill(4) in table:
+        code = wanted.upper().zfill(4)
+        return code, table[code]
+    key = wanted.upper().replace(" ", "_")
+    for code, name in table.items():
+        if name == key:
+            return code, name
+    raise Error(f"unknown region '{wanted}' (see: hsfmodem-config regions)")
+
+
+def cmd_regions(args):
+    for code, name in sorted(regions(args).items(), key=lambda kv: kv[1]):
+        print(f"{name:<24} {code}")
+
+
+def cmd_region(args):
+    table = regions(args)
+    if args.region is None:
+        for d in instances(args):
+            code = (read_value(os.path.join(d, "COUNTRY_CODE")) or "").upper().zfill(4)
+            print(f"{os.path.basename(d)}: {table.get(code, 'unknown')} ({code})")
+        return
+    code, name = resolve_region(args, args.region)
+    for d in instances(args):
+        write_value(os.path.join(d, "COUNTRY_CODE"), code, d)
+        open(os.path.join(d, ".region_set"), "a").close()
+        print(f"{os.path.basename(d)}: region set to {name} ({code})")
+    print("Restart hsfmodemd to apply.")
+
+
+# ---- license ----------------------------------------------------------------
+
+def key_checksum(key):
+    return hashlib.md5((key + "\n").encode()).hexdigest()[:4].upper()
+
+
+def key_to_display(key):
+    if key == FREE_KEY:
+        return "FREE"
+    full = key + key_checksum(key)
+    return "-".join(full[i:i + 2] for i in range(0, 12, 2))
+
+
+def display_to_key(text):
+    """Parse 'XX-XX-XX-XX-XX-XX' (or FREE) as the legacy tool did."""
+    k = re.sub(r"[^0-9A-F]", "", text.upper().replace("FREE", FREE_KEY))
+    if k == FREE_KEY:
+        return k
+    if len(k) != 12:
+        raise Error(f"license key '{text}': expected 12 hex digits")
+    if key_checksum(k[:8]) != k[8:]:
+        raise Error(f"license key '{text}': checksum error (mistyped?)")
+    return k[:8]
+
+
+def valid_owner(owner):
+    owner = re.sub(r"[ \t<>\n]", "", owner.lower())
+    if not re.fullmatch(r".+@.+\..+", owner):
+        raise Error(f"license owner '{owner}': expected an e-mail address")
+    return owner
+
+
+def cmd_license(args):
+    if args.license is None:
+        for d in instances(args):
+            key = read_value(os.path.join(d, "LICENSE_KEY")) or FREE_KEY
+            print(f"{os.path.basename(d)}:")
+            print(f"  registration ID: {read_value(os.path.join(d, 'HARDWARE_ID')) or 'unknown'}")
+            print(f"  status:          {read_value(os.path.join(d, 'LICENSE_STATUS')) or 'unknown'}")
+            print(f"  owner:           {read_value(os.path.join(d, 'LICENSE_OWNER')) or 'none'}")
+            print(f"  key:             {key_to_display(key)}")
+        return
+    owner, _, key = args.license.rpartition("/")
+    if not owner:
+        raise Error("expected OWNER/KEY, e.g. you@example.org/12-34-56-78-9A-BC")
+    owner, key = valid_owner(owner), display_to_key(key)
+    for d in instances(args):
+        write_value(os.path.join(d, "LICENSE_OWNER"), f'"{owner}"', d)
+        write_value(os.path.join(d, "LICENSE_KEY"), key, d)
+        print(f"{os.path.basename(d)}: license {owner}/{key_to_display(key)}")
+    print("Restart hsfmodemd to apply.")
+
+
+# ---- the running daemon ---------------------------------------------------------
+
+def request(args, line):
+    try:
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as s:
+            s.settimeout(10)
+            s.connect(args.control)
+            s.sendall(line.encode() + b"\n")
+            data = b""
+            while chunk := s.recv(4096):
+                data += chunk
+    except OSError as e:
+        raise Error(f"hsfmodemd is not answering on {args.control}: {e.strerror or e}") from e
+    text = data.decode(errors="replace").rstrip("\n")
+    if text.startswith("error "):
+        raise Error(text[6:])
+    return text
+
+
+def cmd_status(args):
+    print(request(args, "status"))
+
+
+def cmd_lastcall(args):
+    print(request(args, "lastcall"))
+
+
+def cmd_flush_nvm(args):
+    request(args, "flush-nvm")
+
+
+# ---- set-up checks ------------------------------------------------------------------
+
+def hda_controllers(sysfs="/sys/bus/pci/devices"):
+    """(address, subsystem vendor, subsystem device) of HD-audio controllers."""
+    out = []
+    for dev in sorted(glob.glob(os.path.join(sysfs, "*"))):
+        try:
+            with open(os.path.join(dev, "class")) as f:
+                cls = int(f.read(), 16)
+            if cls >> 8 != 0x0403:
+                continue
+            with open(os.path.join(dev, "subsystem_vendor")) as f:
+                sv = int(f.read(), 16)
+            with open(os.path.join(dev, "subsystem_device")) as f:
+                sd = int(f.read(), 16)
+        except (OSError, ValueError):
+            continue
+        out.append((os.path.basename(dev), sv, sd))
+    return out
+
+
+def cmd_setup(args):
+    hidden = [c for c in hda_controllers(args.sysfs) if (c[1], c[2]) in HIDDEN_MODEM_SLOT]
+    if not hidden:
+        print("No HD-audio controller here hides its modem slot: nothing to set up.")
+        return
+    addr = hidden[0][0]
+    conf = (f"# hsfmodem-config: the snd-hda-intel quirk for {addr} probes only codec\n"
+            "# slot 0; the modem sits in slot 1.\n"
+            "options snd-hda-intel probe_mask=3\n")
+    if args.dry_run:
+        print(f"Would write {args.modprobe_conf}:\n{conf}", end="")
+        return
+    with open(args.modprobe_conf, "w") as f:
+        f.write(conf)
+    print(f"Wrote {args.modprobe_conf}. Reload snd-hda-intel or reboot, then check that\n"
+          "/proc/asound/card*/codec#1 shows the Conexant modem.")
+
+
+def main(argv=None):
+    p = argparse.ArgumentParser(prog="hsfmodem-config", description=__doc__.split("\n\n")[0])
+    p.add_argument("--nvm-static", default=STATIC_DIR, help="static NVM tree (%(default)s)")
+    p.add_argument("--nvm-dynamic", default=DYNAMIC_DIR, help="per-modem state (%(default)s)")
+    p.add_argument("--profile", default=PROFILE, help="hardware profile (%(default)s)")
+    p.add_argument("--control", default=CONTROL, help="hsfmodemd status socket (%(default)s)")
+    p.add_argument("--unit", type=int, help="modem instance (default: all)")
+    sub = p.add_subparsers(dest="command", required=True)
+    sub.add_parser("status", help="show the running daemon's state").set_defaults(fn=cmd_status)
+    sub.add_parser("lastcall", help="the engine's report on the last call").set_defaults(fn=cmd_lastcall)
+    sub.add_parser("flush-nvm", help="write pending engine state now").set_defaults(fn=cmd_flush_nvm)
+    sub.add_parser("regions", help="list the regions").set_defaults(fn=cmd_regions)
+    r = sub.add_parser("region", help="show or set the region (NAME, T.35 code, or AUTO)")
+    r.add_argument("region", nargs="?")
+    r.set_defaults(fn=cmd_region)
+    lic = sub.add_parser("license", help="show the license, or set OWNER/KEY (KEY may be FREE)")
+    lic.add_argument("license", nargs="?")
+    lic.set_defaults(fn=cmd_license)
+    s = sub.add_parser("setup", help="make snd-hda-intel probe the modem slot where needed")
+    s.add_argument("--dry-run", action="store_true")
+    s.add_argument("--modprobe-conf", default=MODPROBE_CONF)
+    s.add_argument("--sysfs", default="/sys/bus/pci/devices", help=argparse.SUPPRESS)
+    s.set_defaults(fn=cmd_setup)
+    args = p.parse_args(argv)
+    try:
+        args.fn(args)
+    except Error as e:
+        print(f"hsfmodem-config: {e}", file=sys.stderr)
+        return 1
+    except PermissionError as e:
+        print(f"hsfmodem-config: {e.filename}: permission denied (run as root?)", file=sys.stderr)
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
