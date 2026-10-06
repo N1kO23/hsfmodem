@@ -9,6 +9,8 @@ rm -rf "$builddir"
 meson setup "$builddir" -Dopenrc=true -Dsystemd=true "$@"
 meson compile -C "$builddir"
 meson test -C "$builddir" --print-errorlogs
-DESTDIR="$builddir/stage" meson install -C "$builddir" --no-rebuild --quiet
-test -x "$builddir/stage/usr/local/sbin/hsfmodemd"
-test -f "$builddir/stage/usr/local/share/hsfmodem/nvm/hsfhda/Region/003C_NAME"
+# meson resolves a relative DESTDIR from inside the build directory
+stage=$(cd "$builddir" && pwd)/stage
+DESTDIR="$stage" meson install -C "$builddir" --no-rebuild --quiet
+test -x "$stage/usr/local/sbin/hsfmodemd"
+test -f "$stage/usr/local/share/hsfmodem/nvm/hsfhda/Region/003C_NAME"
