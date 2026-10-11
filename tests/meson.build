@@ -24,6 +24,12 @@ test('nvm',
   env: {'HSF_TEST_NVM_STATIC': nvm_tree_dir},
 )
 
+test('physmem',
+  executable('test_physmem', 'unit/test_physmem.c', dependencies: hsfos_dep),
+  protocol: 'tap',
+  suite: 'unit',
+)
+
 test('hda',
   executable('test_hda', 'unit/test_hda.c', dependencies: hsfhda_dep),
   protocol: 'tap',

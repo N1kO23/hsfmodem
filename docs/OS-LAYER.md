@@ -169,8 +169,10 @@ The blobs bracket their floating-point sections with these calls:
   `snd-hda-intel`.
 - **Physical memory:** read as `OS_DEVNODE.osPageOffset + phys`. The daemon
   sets `osPageOffset = 0` and maps the BIOS area 0xE0000–0xFFFFF read-only at
-  its identity address, filled from `/dev/mem`, an image file or zeros. See
-  `BLOB-INTEGRATION.md` for why this matters for `HARDWARE_ID`.
+  its identity address, filled from `/dev/mem`, an image file or zeros. A DMI
+  table outside that area is mapped at its identity address too, or its entry
+  point is hidden if it cannot be read. See `BLOB-INTEGRATION.md` for why this
+  matters for `HARDWARE_ID`.
 
 ## DCP and diagnostics
 

@@ -83,16 +83,26 @@ FALSE, so the blobs pass plain cdecl callbacks. i386 code is built with
 physical memory as `osPageOffset + phys`. During `ComCtrl_Open` it compares
 the BIOS area 0xE0000–0xFFFFF in 16-byte steps against a 5-byte signature:
 8,192 `OsMemCmp` calls per open, consistent with a `_DMI_` entry-point scan.
+`_DMI_` is the only such signature in the engine (no `_SM_`, `_SM3_` or
+`RSD PTR`). It then reads the 32-bit table address at offset 8 of the entry
+point and walks the structure table there, looking for types 1 and 2. On the
+first ThinkPad tried, that table lay at 0x7BB44040, near the top of RAM, and
+the unmapped read crashed the engine.
 
 With `osPageOffset = 0`, the daemon maps a read-only window at the identity
 address 0xE0000 (allowed with the default `vm.mmap_min_addr` of 65536):
 
-- **Hardware.** Fill it from `/dev/mem` (root, kernel lockdown off), or
-  synthesise an entry point and table from `/sys/firmware/dmi/tables/`. If the
-  engine follows the entry point to the DMI structure table, that table must be
-  mapped at its physical address too.
-- **Tests.** Zeros, or a synthetic table, so results stay deterministic and
-  contain no machine serial numbers.
+- **Hardware.** Fill it from `/dev/mem` (root, kernel lockdown off). For each
+  `_DMI_` entry point whose table lies outside the window, the daemon maps the
+  table at its physical address too, read from `/dev/mem` or, if
+  `CONFIG_STRICT_DEVMEM` refuses that, from `/sys/firmware/dmi/tables/DMI`
+  when the kernel's entry point names the same address. A table it cannot read
+  has its entry point hidden (with a warning) rather than left to fault.
+- **Tests.** Zeros, so results stay deterministic and contain no machine serial
+  numbers. An image file holds the BIOS area only, so entry points in it that
+  point outside the window are hidden. A synthetic 114-byte table outside the
+  window, with unmapped pages on either side, changes `HARDWARE_ID` to
+  `23CC7BB2` on both architectures without the engine reading past its end.
 
 **This matters for licensing.** The engine computes `HARDWARE_ID`, which a
 Linuxant key is bound to, without any key present. With a zero BIOS window and
