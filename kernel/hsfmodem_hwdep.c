@@ -16,6 +16,7 @@
 #include <sound/core.h>
 #include <sound/hda_register.h>
 #include <sound/hdaudio.h>
+#include <sound/minors.h>
 
 #include "hsfmodem.h"
 
@@ -297,12 +298,16 @@ int hsfmodem_hwdep_create(struct hsfmodem *hm)
 	struct snd_hwdep *hw;
 	int device, err;
 
-	/* the HDA core already uses device <codec address> for its own hwdep */
-#ifdef CONFIG_SND_DYNAMIC_MINORS
-	device = 16 + codec->addr;
-#else
-	device = codec->addr == 3 ? 2 : 3;
-#endif
+	/*
+	 * The HDA core already uses device <codec address> for each codec's own
+	 * hwdep, and SNDRV_CTL_IOCTL_HWDEP_NEXT_DEVICE only lists devices below
+	 * SNDRV_MINOR_HWDEPS, even with dynamic minors.
+	 */
+	for (device = SNDRV_MINOR_HWDEPS - 1; device >= 0; device--)
+		if (!(codec->bus->core.codec_mask & BIT(device)))
+			break;
+	if (device < 0)
+		return -EBUSY;
 	err = snd_hwdep_new(codec->card, HSFMODEM_HWDEP_ID, device, &hw);
 	if (err < 0)
 		return err;

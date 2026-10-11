@@ -69,8 +69,9 @@ echo hdaudioC0D1 | sudo tee /sys/bus/hdaudio/drivers/snd_hda_codec_hsfmodem/bind
 **Expected:**
 
 - `/proc/asound/card0/codec#1` names "HSF HDA D330 MDC V.92 Modem".
-- `/proc/asound/hwdep` lists "HSF Modem".
-- `/dev/snd/hwC0D*` and `/dev/snd/pcmC0D6{p,c}` exist.
+- `/proc/asound/hwdep` lists "HSF Modem" as device 0-3 (e.g. `00-03: HSF Modem`);
+  hsfmodemd cannot find it at a higher number.
+- `/dev/snd/hwC0D3` (or whichever device that is) and `/dev/snd/pcmC0D6{p,c}` exist.
 
 **Collect:** `dmesg` and `/proc/asound/hwdep`. Then check that the module
 unloads and reloads cleanly 20 times:

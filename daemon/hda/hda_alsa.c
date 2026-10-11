@@ -528,8 +528,10 @@ struct hsf_hda_backend *hsf_hda_alsa_new(int want_card)
 	a->hwdep_fd = a->stop_fd = -1;
 	a->play.fd = a->cap.fd = -1;
 	if (find_hwdep(want_card, &a->card, &a->hwdep_dev)) {
-		hsf_log(HSF_LOG_ERR, "no HSF modem found: is snd-hda-codec-hsfmodem loaded, and on a "
-			"ThinkPad X/T/R60, snd_hda_intel.probe_mask=3 set?");
+		hsf_log(HSF_LOG_ERR, "no HSF modem found: /proc/asound/hwdep should list \"HSF Modem\" "
+			"as device 0-3 (older builds of snd-hda-codec-hsfmodem used 16+ and need "
+			"rebuilding). Is the module loaded, and on a ThinkPad X/T/R60, "
+			"snd_hda_intel.probe_mask=3 set?");
 		goto fail;
 	}
 	snprintf(path, sizeof(path), "/dev/snd/hwC%dD%d", a->card, a->hwdep_dev);
